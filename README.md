@@ -57,18 +57,15 @@ INSERT INTO check_location (
 
 
 INSERT INTO banking_center_details (
-    banking_center_number,
-    banking_center_name,
-    banking_center_status,
-    banking_center_state_code,
-    banking_center_zip_code,
-    banking_center_bank_code
-) VALUES 
+    banking_center_number, banking_center_name, banking_center_status,
+    banking_center_state_code, banking_center_zip_code, banking_center_bank_code
+) VALUES
 ('BC1001', 'Dallas Main Branch', 'Active', 'TX', '75201', '101'),
 ('BC1002', 'Austin Central', 'Inactive', 'TX', '73301', '102'),
 ('BC1003', 'Houston South', 'Active', 'TX', '77002', '103'),
 ('BC1004', 'San Antonio North', 'Pending', 'TX', '78205', '104'),
 ('BC1005', 'Plano HQ', 'Active', 'TX', '75093', '105');
+
 
 
 INSERT INTO check_details (
