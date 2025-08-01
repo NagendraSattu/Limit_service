@@ -24,7 +24,7 @@ INSERT INTO dda_account_details (
     dda_status
 ) VALUES
 ('2000000001', 'Accounts Payable ARP', 'ARP001', 10101, 'arp@comerica.com', 'TX', 'ARP', 1, 'Approved', 'Active'),
-('2000000002', 'Core Banking Hogan', 'HOG002', 10102, 'hogan@comerica.com', 'CA', 'Hogan', 2, 'Pending Review', 'Active'),
+('2000000002', 'Core Banking Hogan', 'HOG002', 10102, 'hogan@comerica.com', 'CA', 'Hgn', 2, 'Pending Review', 'Active'),
 ('2000000003', 'Dash Payments', 'DAS003', 10103, 'dash@comerica.com', 'NY', 'Dash', 1, 'Approved', 'Inactive'),
-('2000000004', 'Online BillPay', 'BIL004', 10104, 'billpay@comerica.com', 'FL', 'BillPay', 3, 'Rejected', 'Suspended'),
-('2000000005', 'Regulatory - Reg E', 'REG005', 10105, 'rege@comerica.com', 'MI', 'Reg-E', 2, 'Escalated', 'Active');
+('2000000004', 'Online BillPay', 'BIL004', 10104, 'billpay@comerica.com', 'FL', 'BPY', 3, 'Rejected', 'Suspended'),
+('2000000005', 'Regulatory - Reg E', 'REG005', 10105, 'rege@comerica.com', 'MI', 'RegE', 2, 'Escalated', 'Active');
