@@ -1,38 +1,37 @@
-import os, sys, json, glob
-import requests
-from dotenv import load_dotenv
-import urllib3
+# lambda_function.py
+import os, json, tempfile
+import boto3, requests, urllib3
 
-# Disable SSL verification warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ---- Config via Lambda environment variables ----
+BASE_URL           = os.getenv("BASE_URL", "https://ech-qa.us.comerica.net")
+TRACKER_PRO_TOKEN  = os.getenv("TRACKER_PRO_TOKEN")          # "Bearer <token>"
+HOLDER_ID          = int(os.getenv("HOLDER_ID", "0"))
+FILEMAPPING_ID     = int(os.getenv("FILEMAPPING_ID", "0"))
 
-load_dotenv()
+# Optional: if you set this to "true", we skip SSL checks to avoid cert errors
+DISABLE_SSL_VERIFY = os.getenv("DISABLE_SSL_VERIFY", "false").lower() == "true"
 
-# ---- Config from .env ----
-TOKEN = os.getenv("TRACKER_PRO_TOKEN")
-HOLDER_ID = int(os.getenv("HOLDER_ID"))
-FILE_MAPPING_ID = int(os.getenv("FILEMAPPING_ID"))
-FILE_PATH = "LPS_new_data.xlsx"   # match your actual file
-BASE_URL = "https://ech-qa.us.comerica.net"
+VERIFY = False if DISABLE_SSL_VERIFY else True
+if DISABLE_SSL_VERIFY:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---- Safety checks ----
-if not os.path.exists(FILE_PATH):
-    print(f"❌ File not found: {FILE_PATH}")
-    print("Folder contents:"); [print(" -", p) for p in sorted(glob.glob('*'))]
-    sys.exit(1)
+S3 = boto3.client("s3")
+HEADERS_JSON = {"accept": "application/json", "Authorization": TRACKER_PRO_TOKEN}
 
-HEADERS_JSON = {"accept": "application/json", "Authorization": TOKEN}
-
-def upload_file(file_path: str) -> str:
+def upload_file(local_path: str) -> str:
     url = f"{BASE_URL}/api/Uploads/Upload/Import"
-    with open(file_path, "rb") as f:
+    with open(local_path, "rb") as f:
         files = {"file": f}
-        r = requests.post(url, headers={"Authorization": TOKEN}, files=files, verify=False)  # <- SSL disabled
+        r = requests.post(url, headers={"Authorization": TRACKER_PRO_TOKEN},
+                          files=files, verify=VERIFY, timeout=(10, 120))
     r.raise_for_status()
     js = r.json()
-    return js.get("data", {}).get("fileId") or js.get("result", {}).get("fileId")
+    file_id = js.get("data", {}).get("fileId") or js.get("result", {}).get("fileId")
+    if not file_id:
+        raise RuntimeError(f"Upload response missing fileId: {js}")
+    return file_id
 
-def import_file(file_id: str, file_mapping_id: int, holder_id: int) -> dict:
+def import_file(file_id: str) -> dict:
     url = f"{BASE_URL}/api/v2.0/Imports/Import"
     body = {
         "duplicateRecord": "AddNewOnly",
@@ -44,32 +43,63 @@ def import_file(file_id: str, file_mapping_id: int, holder_id: int) -> dict:
         "searchBusinessNames": True,
         "searchActInactivesForDuplicates": True,
         "stageOperation": "ReviewAndCommit",
-        "defaultHolderId": holder_id,
-        "fileMappingId": file_mapping_id,
+        "defaultHolderId": HOLDER_ID,
+        "fileMappingId": FILEMAPPING_ID,
         "ownerUniqueFieldIds": [],
         "propertyUniqueFieldIds": [],
         "uploadFileId": file_id
     }
-    r = requests.post(url, headers={**HEADERS_JSON, "Content-Type": "application/json"}, json=body, verify=False)  # <- SSL disabled
+    r = requests.post(url, headers={**HEADERS_JSON, "Content-Type": "application/json"},
+                      json=body, verify=VERIFY, timeout=(10, 300))
     r.raise_for_status()
     return r.json()
 
-if __name__ == "__main__":
-    try:
-        print("📤 Uploading file...")
-        fid = upload_file(FILE_PATH)
-        print(f"✅ Uploaded. fileId = {fid}")
+def download_from_s3(bucket: str, key: str) -> str:
+    # Save under /tmp (Lambda’s writable folder)
+    _, ext = os.path.splitext(key)
+    fd, local_path = tempfile.mkstemp(prefix="upload_", suffix=ext)
+    os.close(fd)
+    S3.download_file(bucket, key, local_path)
+    return local_path
 
-        print("📥 Importing file...")
-        result = import_file(fid, FILE_MAPPING_ID, HOLDER_ID)
-        print(json.dumps(result, indent=2))
+def lambda_handler(event, context):
+    """
+    Two ways to invoke:
+
+    1) Direct test (from Console):
+       {
+         "bucket": "bce-import-dev-123",
+         "key": "inbound/LPS_new_data.xlsx"
+       }
+
+    2) S3 trigger event (automatic on new file):
+       event["Records"][0]["s3"]["bucket"]["name"]
+       event["Records"][0]["s3"]["object"]["key"]
+    """
+    try:
+        if "Records" in event:  # S3 trigger
+            rec = event["Records"][0]
+            bucket = rec["s3"]["bucket"]["name"]
+            key = rec["s3"]["object"]["key"]
+        else:  # direct invoke
+            bucket = event["bucket"]
+            key    = event["key"]
+
+        local_path = download_from_s3(bucket, key)
+        file_id = upload_file(local_path)
+        result  = import_file(file_id)
 
         ok = (result.get("success") is True) or (not result.get("errors"))
-        print("✅ Import completed successfully" if ok else "❌ Import finished with errors")
-
+        return {
+            "statusCode": 200 if ok else 500,
+            "body": json.dumps({
+                "message": "Upload & Import completed" if ok else "Import finished with errors",
+                "fileId": file_id,
+                "result": result
+            })
+        }
     except Exception as e:
-        print("❌ Error:", e)
-        raise
-
-
-////////////////////////////////////////////////////////////
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
